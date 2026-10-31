@@ -16,7 +16,14 @@ preloader → LK → GenieZone → Linux → 本 init（PID 1）
 没有 U-Boot / UEFI：boot 镜像由 `fastboot flash boot_a` 写入，
 内含厂商 DTB + 内核 + 本 initramfs。
 
-## 两种模式
+## 两种模式，两个源文件
+
+| 源文件 | 模式 | 用在 |
+| --- | --- | --- |
+| `initramfs-rootfs/init.c`（557 行） | `rootfs` | **设备上实际启动的** |
+| `initramfs/init.c`（4416 行） | `bringup` | 救援：Alpine + 诊断 + shell |
+
+`mkinitramfs.sh` 按 `INITRAMFS_MODE` 选源文件，可用 `INIT_SRC=` 覆盖。
 
 ### `rootfs`（设备上实际使用的）
 
@@ -32,6 +39,8 @@ initramfs 里**没有任何用户态**，只做这几件事然后 switch_root �
 ### `bringup`（救援/诊断）
 
 带 Alpine 用户态、诊断输出和 USB shell，用来在刷机前验证硬件。
+这一版包含大量硬件自检（I2C 寄存器读写、电源/电量计、USB 角色切换、
+设备树与 framebuffer dump），是当初在无串口条件下摸清硬件的工具。
 
 ## 几个非显然的设计
 
