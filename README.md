@@ -1,76 +1,51 @@
-# chopin boot initramfs
+# chopin initramfs —— `rootfs` 分支
 
-Redmi Note 10 Pro（MT6891 / "chopin"）主线 Linux 的**启动 init**：
-一个静态链接的 C 程序，作为 initramfs 里的 PID 1。
+> 另一个分支：**`recovery`** —— 救援镜像（Alpine + 全套硬件诊断 + USB shell）
+> 本分支：**`rootfs`** —— 设备实际启动用的极简 PID 1（557 行）
 
-不是 busybox + 脚本，而是 4400 行 C，原因是这台机器**没有串口可用**
-（只能用 USB gadget 的 `ttyGS0`），而且很多问题（固件加载时序、面板点亮、
-SCP 释放）必须在 userspace 极早期处理。
+## 这是什么
 
-## 启动链
+Redmi Note 10 Pro（MT6891 / "chopin"）主线 Linux **真正启动设备**的那个
+initramfs。里面**没有任何用户态**：只有一个静态 C 程序做 PID 1，
+挂上发行版然后 `switch_root` 过去。
+
+因为是 rootfs-only 镜像，ramdisk 里不带 shell、不带 busybox、不带诊断——
+没东西可救，控制台就是发行版自己的。
+
+```sh
+make rootfs       # → out/initramfs.cpio.gz（约 290 KB）
+```
+
+## 启动流程
 
 ```
-preloader → LK → GenieZone → Linux → 本 init（PID 1）
+preloader → LK → GenieZone → Linux → 本 init（PID 1）→ switch_root → systemd
 ```
 
-没有 U-Boot / UEFI：boot 镜像由 `fastboot flash boot_a` 写入，
-内含厂商 DTB + 内核 + 本 initramfs。
+本 init 做的事：
 
-## 两种模式，两个源文件
+1. 挂 `/proc /sys /dev`，把所有输出重定向到 `/dev/kmsg`
+2. 打开 USB gadget 控制台 `/dev/ttyGS0`（没有串口，这是唯一早期控制台）
+3. **早期加载厂商固件**（原因见下）
+4. 确定根设备并挂载：
+   - 内核命令行 `chopin.root=/dev/sdc86`
+   - 或 initramfs 里烘焙的 `/etc/chopin/rootfs`
+5. `boot_rootfs(dev)` → `switch_root` → systemd
 
-| 源文件 | 模式 | 用在 |
-| --- | --- | --- |
-| `initramfs-rootfs/init.c`（557 行） | `rootfs` | **设备上实际启动的** |
-| `initramfs/init.c`（4416 行） | `bringup` | 救援：Alpine + 诊断 + shell |
+## 三个非显然的设计
 
-`mkinitramfs.sh` 按 `INITRAMFS_MODE` 选源文件，可用 `INIT_SRC=` 覆盖。
-
-### `rootfs`（设备上实际使用的）
-
-initramfs 里**没有任何用户态**，只做这几件事然后 switch_root 到发行版：
-
-1. 挂 `/proc /sys /dev`，把 stdout 重定向到 `/dev/kmsg`
-2. 打开 USB gadget 控制台 `/dev/ttyGS0`
-3. 早期加载厂商固件（见下）
-4. **确定根设备**：内核命令行 `chopin.root=/dev/sdc86`，
-   或 initramfs 里烘焙的 `/etc/chopin/rootfs`
-5. `boot_rootfs(dev)` → 挂载、`switch_root` → systemd 接管
-
-### `bringup`（救援/诊断）
-
-带 Alpine 用户态、诊断输出和 USB shell，用来在刷机前验证硬件。
-这一版包含大量硬件自检（I2C 寄存器读写、电源/电量计、USB 角色切换、
-设备树与 framebuffer dump），是当初在无串口条件下摸清硬件的工具。
-
-## 几个非显然的设计
-
-### 固件必须最先加载
+### 固件必须最先写进去
 
 ```c
 /* The wlan driver requests its NVRAM blob a couple of seconds after boot and
- * the conninfra pre-calibration waits only ~30s for that request to finish. */
+ * the conninfra pre-calibration waits only ~30s for that request */
 if (rootdev) auto_fwload();
 ```
 
-WiFi 的 NVRAM 如果晚于 conninfra 的 30 秒预校准窗口到达，
-**连接芯片会永久卡死**。所以固件在诊断输出之前就要写好。
+WiFi 的 NVRAM 晚于 conninfra 预校准的 30 秒窗口 → **连接芯片永久卡死**，
+表现为 WiFi 驱动加载成功但扫不到任何 AP。
 
-### 诊断不能晚于 shell
-
-`print_diagnostics()` 会 dump 整个内核日志，可能耗时几十秒。
-顺序错了会让 USB 主机等不到控制台。
-
-### 音量键要在开机瞬间锁定
-
-```c
-/* the display (and therefore the recovery UI) only appears ~12s in,
- * long after a user has let go of the key */
-volup_at_boot = keypad_hw_down(0);
-```
-
-12 秒后面板才亮，那时按键早松开了，所以开机时就要把音量上键的状态锁存下来。
-
-### rootfs 模式下不碰显示
+### rootfs 模式绝不能碰显示
 
 ```c
 /* In rootfs mode systemd/GDM owns the display: the bring-up child leaves the
@@ -79,49 +54,30 @@ volup_at_boot = keypad_hw_down(0);
 if (!rootdev && fork() == 0) display_bringup();
 ```
 
-### recovery 不依赖主机在线
+早期版本在 rootfs 模式也做显示 bring-up，结果 DSI 被关掉，
+GDM 渲染进黑屏。
 
-早期版本把 recovery 和根文件系统启动都放在 `if (sh_fd >= 0)` 里，
-结果**没插 USB 就会永远停在 initramfs**。现在两者独立判断。
+### 没有主机也要能启动
 
-## 内置的诊断命令
-
-init 在 bringup 模式提供 shell，带这些命令（都直接操作 sysfs/devfs）：
-
-| 命令 | 作用 |
-| --- | --- |
-| `i2creg <bus> <addr> <reg> [n]` | 直接读写 I2C 寄存器（定位过电量计问题） |
-| `power` / `battery` | 电源与电量计状态 |
-| `usbhost` | 切换 USB 角色、重新绑定 gadget |
-| 设备树 / framebuffer / 内核日志 dump | 无串口时的"黑匣子" |
+早期把根文件系统启动放在 `if (sh_fd >= 0)`（USB 控制台可用）里面，
+结果**不插 USB 就永远停在 initramfs**。现在两者独立判断。
 
 ## 构建
 
 ```sh
-# 设备上用的形态
-make rootfs      # → out/initramfs.cpio.gz
-
-# 救援形态（需要 Alpine rootfs，用 ALPINE_ROOTFS 指定）
-make bringup
-```
-
-然后打包 boot 镜像：
-
-```sh
-INITRAMFS_MODE=rootfs \
-KERNEL=<build>/arch/arm64/boot/Image \
-DTB=<build>/arch/arm64/boot/dts/mediatek/mt6893-xiaomi-chopin.dtb \
+make rootfs
+INITRAMFS_MODE=rootfs KERNEL=... DTB=... \
 STOCK_DTB=<...>/git/chopin-support/dtb/stock-base.dtb \
 ./tools/build-images.sh out-image
 ```
 
-`STOCK_DTB` 是厂商 DTB（from 原机 boot 分区），**必须**随镜像携带：
-LK 会校验并在 `setup_arch()` 里被自有 DTB 替换。
+`STOCK_DTB` 是厂商 DTB（原机 boot 分区，现存在 `git/chopin-support/dtb/`），
+**必须**随镜像携带：LK 会校验它，自有 DTB 在 `setup_arch()` 里替换。
 
 ## 相关仓库
 
 | 仓库 | 内容 |
 | --- | --- |
 | `git/chopin-linux-7.3` | 内核与设备树 |
-| `git/chopin-support` | 固件、服务、配置 |
+| `git/chopin-support` | 固件（含厂商 DTB）、服务、配置 |
 | `git/chopin-docs` | 主题文档 |
