@@ -111,7 +111,7 @@ make bringup
 INITRAMFS_MODE=rootfs \
 KERNEL=<build>/arch/arm64/boot/Image \
 DTB=<build>/arch/arm64/boot/dts/mediatek/mt6893-xiaomi-chopin.dtb \
-STOCK_DTB=<vendor dtb> \
+STOCK_DTB=<...>/git/chopin-support/dtb/stock-base.dtb \
 ./tools/build-images.sh out-image
 ```
 
