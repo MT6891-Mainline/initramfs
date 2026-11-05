@@ -86,6 +86,28 @@ static void mount_pseudo(void)
 	mount("tmpfs", "/run", "tmpfs", MS_NOSUID | MS_NOEXEC, NULL);
 }
 
+/*
+ * The partition number of userdata depends on the firmware revision: the stock
+ * MIUI 12.5 scatter puts it at sdc77, the newer layouts this port was built
+ * against put it at sdc75.  Probing beats trusting one number - a wrong guess
+ * mounts someone else's filesystem (or nothing) and the board stops at this
+ * init with no distro to switch to.
+ */
+static int has_rootfs(const char *dev)
+{
+	int ok;
+
+	mkdir_p("/mnt/probe");
+	if (mount(dev, "/mnt/probe", "ext4", MS_RDONLY, NULL) &&
+	    mount(dev, "/mnt/probe", "f2fs", MS_RDONLY, NULL))
+		return 0;
+
+	ok = (access("/mnt/probe/sbin/init", X_OK) == 0 ||
+	      access("/mnt/probe/init", X_OK) == 0);
+	umount("/mnt/probe");
+	return ok;
+}
+
 static const char *root_device(void)
 {
 	static char buf[256];
@@ -110,6 +132,24 @@ static const char *root_device(void)
 		}
 		fclose(f);
 	}
+
+	/* the partition this port has always used, if it still exists */
+	if (has_rootfs(ROOT_DEV))
+		return ROOT_DEV;
+
+	/* otherwise look for a distro on any sdc partition */
+	for (int i = 1; i <= 200; i++) {
+		static char found[64];
+
+		snprintf(buf, sizeof(buf), "/dev/sdc%d", i);
+		if (access(buf, F_OK))
+			continue;
+		if (has_rootfs(buf)) {
+			snprintf(found, sizeof(found), "%s", buf);
+			return found;
+		}
+	}
+
 	return ROOT_DEV;
 }
 
