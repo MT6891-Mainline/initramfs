@@ -91,4 +91,4 @@ STOCK_DTB=<...>/git/chopin-support/dtb/stock-base.dtb \
 | --- | --- |
 | `git/chopin-linux-7.3` | 内核与设备树 |
 | `git/chopin-support` | 固件（含厂商 DTB）、服务、配置 |
-| `git/chopin-docs` | 主题文档 |
+| `git/docs` | 机型文档（按功能 + 时间线） |
