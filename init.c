@@ -102,8 +102,11 @@ static int has_rootfs(const char *dev)
 	    mount(dev, "/mnt/probe", "f2fs", MS_RDONLY, NULL))
 		return 0;
 
+	/* Arch installs systemd at /usr/lib/systemd/systemd and has no
+	 * /sbin/init unless systemd-sysvcompat is present. */
 	ok = (access("/mnt/probe/sbin/init", X_OK) == 0 ||
-	      access("/mnt/probe/init", X_OK) == 0);
+	      access("/mnt/probe/init", X_OK) == 0 ||
+	      access("/mnt/probe/usr/lib/systemd/systemd", X_OK) == 0);
 	umount("/mnt/probe");
 	return ok;
 }
@@ -513,7 +516,7 @@ static void fwload_nvdata(const char *root)
 
 static int switch_root(const char *dev)
 {
-	const char *init = "/sbin/init";
+	const char *init;
 
 	mkdir_p("/newroot");
 	if (mount(dev, "/newroot", "ext4", MS_RDONLY, NULL) &&
@@ -521,14 +524,17 @@ static int switch_root(const char *dev)
 		msg("mount %s: %s", dev, strerror(errno));
 		return -1;
 	}
-	if (access("/newroot/sbin/init", X_OK) &&
-	    access("/newroot/init", X_OK)) {
-		msg("%s has no /sbin/init or /init", dev);
+	if (access("/newroot/sbin/init", X_OK) == 0)
+		init = "/sbin/init";
+	else if (access("/newroot/init", X_OK) == 0)
+		init = "/init";
+	else if (access("/newroot/usr/lib/systemd/systemd", X_OK) == 0)
+		init = "/usr/lib/systemd/systemd";
+	else {
+		msg("%s has no sbin/init, init or systemd", dev);
 		umount("/newroot");
 		return -1;
 	}
-	if (access("/newroot/sbin/init", X_OK) != 0)
-		init = "/init";
 	if (mount(dev, "/newroot", NULL, MS_REMOUNT, NULL)) {
 		msg("remount %s: %s", dev, strerror(errno));
 		umount("/newroot");

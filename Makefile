@@ -12,7 +12,7 @@ export CROSS_COMPILE
 .PHONY: rootfs clean
 
 rootfs:
-	INITRAMFS_MODE=rootfs INIT_SRC=initramfs/init.c ./tools/mkinitramfs.sh out
+	INITRAMFS_MODE=rootfs INIT_SRC=init.c ./tools/mkinitramfs.sh out
 
 clean:
 	rm -rf out
