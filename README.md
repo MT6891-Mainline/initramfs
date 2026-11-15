@@ -3,6 +3,17 @@
 > 另一个分支：**`rootfs`** —— 设备实际启动用的极简 PID 1（557 行）
 > 本分支：**`recovery`** —— 救援镜像（4416 行，含全套硬件诊断）
 
+## 目录结构
+
+```
+init.c              PID 1 的源码（静态 C，单个文件）
+Makefile            make recovery → out/initramfs.cpio.gz
+tools/              mkinitramfs.sh / build-images.sh / 诊断小工具
+```
+
+> `init.c` 以前放在 `initramfs/` 子目录里，2026-11 挪到了仓库顶层。
+
+
 ## 这是什么
 
 Redmi Note 10 Pro（MT6891 / "chopin"）主线 Linux 的**救援 initramfs**：

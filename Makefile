@@ -12,7 +12,7 @@ export CROSS_COMPILE
 .PHONY: recovery clean
 
 recovery:
-	INITRAMFS_MODE=bringup INIT_SRC=initramfs/init.c ./tools/mkinitramfs.sh out
+	INITRAMFS_MODE=bringup INIT_SRC=init.c ./tools/mkinitramfs.sh out
 
 clean:
 	rm -rf out

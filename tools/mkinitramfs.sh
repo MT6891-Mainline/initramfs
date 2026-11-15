@@ -58,11 +58,8 @@ if [ -n "${GPU_DRIVER:-}" ] && [ -f "$GPU_DRIVER" ]; then
     echo "initramfs: GPU driver from $GPU_DRIVER"
 fi
 
-if [ "$mode" = rootfs ]; then
-    init_src=${INIT_SRC:-"$port/initramfs-rootfs/init.c"}
-else
-    init_src=${INIT_SRC:-"$port/initramfs/init.c"}
-fi
+# init.c lives at the top of this repository (it used to sit in initramfs/).
+init_src=${INIT_SRC:-"$port/init.c"}
 "$cc" -static -Os -Wall -Wextra -o "$root/init" "$init_src"
 chmod 0755 "$root/init"
 
